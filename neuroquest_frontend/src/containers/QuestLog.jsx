@@ -1,4 +1,9 @@
-import React, { useEffect, useState } from "react";
+/*
+  QuestLog.jsx
+  - RPG-style quest/task container: Manages state for grouped quest types (AI/manual), implements CRUD,
+  integrates dnd-kit for drag-and-drop, calls OpenAI for manual rewrites, and synchronizes UI.
+*/
+import React, { useEffect, useState, useRef } from "react";
 import BaseLayout from "./BaseLayout";
 import QuestCard from "../components/QuestCard";
 import {
@@ -6,7 +11,7 @@ import {
   closestCenter,
   PointerSensor,
   useSensor,
-  useSensors
+  useSensors,
 } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -14,91 +19,112 @@ import {
   arrayMove,
   useSortable
 } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
 import { getQuestBreakdown } from "../api/openaiQuestBreakdown";
 
-// Helper to generate unique ids for manual tasks
+// PUBLIC_INTERFACE
 function uuid() {
-  return (
-    Date.now().toString(36) +
-    "-" +
-    Math.random().toString(36).slice(2, 8)
-  );
+  // Simple unique id utility
+  return `${Date.now().toString(36)}-${Math.random().toString(36).substring(2,7)}`;
 }
 
 // PUBLIC_INTERFACE
 export default function QuestLog() {
-  // questsData: {main:[], side:[], micro:[], manual:[]}
-  const [questsData, setQuestsData] = useState({
-    main: [],
-    side: [],
-    micro: [],
-    manual: [],
+  // State: Grouped quest/task data
+  const [quests, setQuests] = useState({
+    main: [],   // AI: main story
+    side: [],   // AI: optional
+    micro: [],  // AI: microtasks
+    manual: [], // Manual user-added
   });
-  const [loading, setLoading] = useState(false);
   const [goal, setGoal] = useState("");
+  const [loading, setLoading] = useState(false);
   const [aiError, setAiError] = useState("");
   const [rewriteLoadingId, setRewriteLoadingId] = useState(null);
   const [newTaskText, setNewTaskText] = useState("");
+  const inputRef = useRef();
 
-  // On mount, optionally load last state from localStorage
+  // On mount: load from localStorage if present
   useEffect(() => {
     const saved = localStorage.getItem("questsData");
     const savedGoal = localStorage.getItem("mainGoal");
-    if (saved) setQuestsData(JSON.parse(saved));
+    if (saved) setQuests(JSON.parse(saved));
     if (savedGoal) setGoal(savedGoal);
   }, []);
-
-  // Persist to localStorage on change
+  // Persist quests and goal to localStorage
   useEffect(() => {
-    localStorage.setItem("questsData", JSON.stringify(questsData));
-  }, [questsData]);
+    localStorage.setItem("questsData", JSON.stringify(quests));
+  }, [quests]);
   useEffect(() => {
-    if (goal) localStorage.setItem("mainGoal", goal);
+    localStorage.setItem("mainGoal", goal);
   }, [goal]);
 
-  // Helper to structure OpenAI output to questsData format
-  const aiToQuestsData = (data) => ({
-    main: (data?.mainQuestline || []).map((text, i) => ({
-      id: "main-" + i + "-" + uuid(),
-      text,
-      completed: false,
-      type: "main",
-      isManual: false,
-    })),
-    side: (data?.sideQuests || []).map((text, i) => ({
-      id: "side-" + i + "-" + uuid(),
-      text,
-      completed: false,
-      type: "side",
-      isManual: false,
-    })),
-    micro: (data?.microtasks || []).map((text, i) => ({
-      id: "micro-" + i + "-" + uuid(),
-      text,
-      completed: false,
-      type: "micro",
-      isManual: false,
-    })),
-    manual: questsData.manual || [],
-  });
+  // Helper: Convert OpenAI breakdown to canonical quests state
+  function aiToQuests(ai) {
+    return {
+      main: (ai?.mainQuestline || []).map((text, i) => ({
+        id: `main-${uuid()}`,
+        text, completed: false, type: "main", isManual: false,
+      })),
+      side: (ai?.sideQuests || []).map((text, i) => ({
+        id: `side-${uuid()}`,
+        text, completed: false, type: "side", isManual: false,
+      })),
+      micro: (ai?.microtasks || []).map((text, i) => ({
+        id: `micro-${uuid()}`,
+        text, completed: false, type: "micro", isManual: false,
+      })),
+      manual: quests.manual || [],
+    };
+  }
 
-  // Handler: AI Rewrite for a manual task
+  // -- CRUD logic --
+  function handleAddManual(e) {
+    e.preventDefault();
+    const txt = newTaskText.trim();
+    if (!txt) return;
+    setQuests((prev) => ({
+      ...prev,
+      manual: [
+        ...prev.manual,
+        {
+          id: `manual-${uuid()}`,
+          text: txt,
+          completed: false,
+          type: "manual",
+          isManual: true,
+        },
+      ],
+    }));
+    setNewTaskText("");
+    // Optionally, focus back to input (UX)
+    if (inputRef.current) inputRef.current.focus();
+  }
+  function handleCheck(id, type) {
+    setQuests((old) => ({
+      ...old,
+      [type]: old[type].map((q) =>
+        q.id === id ? { ...q, completed: !q.completed } : q
+      ),
+    }));
+  }
+  function handleDelete(id, type) {
+    setQuests((old) => ({
+      ...old,
+      [type]: old[type].filter((q) => q.id !== id),
+    }));
+  }
+
+  // --- OpenAI AI Rewrite integration for manual task ---
   async function handleRewrite(id) {
     setRewriteLoadingId(id);
     try {
-      const manualTask = questsData.manual.find((q) => q.id === id);
+      const manualTask = quests.manual.find((q) => q.id === id);
       if (!manualTask) return;
-      // Use OpenAI to rewrite/improve the description
       const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
-      if (!apiKey) throw new Error("VITE_OPENAI_API_KEY missing from environment!");
+      if (!apiKey) throw new Error("VITE_OPENAI_API_KEY missing!");
       const prompt = [
-        {
-          role: "system",
-          content:
-            "You are NeuroQuestGPT. Rewrite the given todo/task for an RPG quest log. Make it snappier, more actionable, and fantasy-flavored. 1-2 sentences MAX.",
-        },
-        { role: "user", content: `Task: ${manualTask.text}` },
+        { role: "system", content: "You are NeuroQuestGPT. Rewrite this task for an RPG quest log—make it actionable, brief, and fantasy-themed (max 2 lines)." },
+        { role: "user", content: manualTask.text },
       ];
       const res = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
@@ -109,39 +135,32 @@ export default function QuestLog() {
         body: JSON.stringify({
           model: "gpt-3.5-turbo",
           messages: prompt,
-          temperature: 0.65,
-          max_tokens: 50,
+          temperature: 0.6,
+          max_tokens: 60,
         }),
       });
       const data = await res.json();
-      const revised =
-        data?.choices?.[0]?.message?.content?.trim() ||
-        manualTask.text;
-      setQuestsData((old) => ({
+      const revised = data?.choices?.[0]?.message?.content?.trim() || manualTask.text;
+      setQuests((old) => ({
         ...old,
-        manual: old.manual.map((q) =>
-          q.id === id ? { ...q, text: revised } : q
-        ),
+        manual: old.manual.map((q) => q.id === id ? { ...q, text: revised } : q),
       }));
     } catch (err) {
-      alert(
-        "OpenAI failed to rewrite task: " + (err?.message || String(err))
-      );
+      alert("OpenAI failed to rewrite task: " + (err?.message || String(err)));
     }
     setRewriteLoadingId(null);
   }
 
-  // Handler: AI breakdown for user-entered goal
+  // ----- OpenAI "AI Breakdown" Main Quest Handler -----
   async function handleAIBreakdown(e) {
     e.preventDefault();
     setLoading(true);
     setAiError("");
     try {
-      const data = await getQuestBreakdown(goal);
-      setQuestsData((old) => ({
-        // Wipe old AI tasks, but keep manual tasks
-        ...aiToQuestsData(data),
-        manual: old.manual,
+      const aiResult = await getQuestBreakdown(goal);
+      setQuests(old => ({
+        ...aiToQuests(aiResult),
+        manual: old.manual,  // persist any user-added tasks
       }));
     } catch (err) {
       setAiError(err?.message || "Failed to summon quest map!");
@@ -149,65 +168,26 @@ export default function QuestLog() {
     setLoading(false);
   }
 
-  // Handler: Add manual task
-  function handleAddManual(e) {
-    e.preventDefault();
-    const txt = newTaskText.trim();
-    if (!txt) return;
-    setQuestsData((old) => ({
-      ...old,
-      manual: [
-        ...old.manual,
-        {
-          id: "manual-" + uuid(),
-          text: txt,
-          completed: false,
-          type: "manual",
-          isManual: true,
-        },
-      ],
-    }));
-    setNewTaskText("");
-  }
-
-  // Handler: Check-off or uncheck
-  function handleCheck(id, type) {
-    setQuestsData((old) => ({
-      ...old,
-      [type]: old[type].map((q) =>
-        q.id === id ? { ...q, completed: !q.completed } : q
-      ),
-    }));
-  }
-  // Handler: Delete
-  function handleDelete(id, type) {
-    setQuestsData((old) => ({
-      ...old,
-      [type]: old[type].filter((q) => q.id !== id),
-    }));
-  }
-
-  // DnD-Kit setup: We'll have a SortableContext per group
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
-
+  // --- DND-kit drag-and-drop reordering within each quest group ---
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+  );
   function handleDragEnd(evt, group) {
     const { active, over } = evt;
     if (!over || active.id === over.id) return;
-    setQuestsData((old) => {
-      const copy = { ...old };
-      const items = copy[group].slice();
+    setQuests((old) => {
+      const items = [...old[group]];
       const oldIdx = items.findIndex((q) => q.id === active.id);
       const newIdx = items.findIndex((q) => q.id === over.id);
-      if (oldIdx === -1 || newIdx === -1) return old; // broken DnD
-      copy[group] = arrayMove(items, oldIdx, newIdx);
-      return copy;
+      if (oldIdx === -1 || newIdx === -1) return old;
+      const moved = arrayMove(items, oldIdx, newIdx);
+      return { ...old, [group]: moved };
     });
   }
 
-  // UI for a group of quests
+  // --- Quest Group renderer: Renders a list of QuestCards of same type, sortable via DnD. ---
   function QuestGroup({ group, title, emoji, color }) {
-    const quests = questsData[group] || [];
-    // Each SortableContext is for DnD reordering within its group
+    const qs = quests[group] || [];
     return (
       <section className="mb-7 w-full max-w-xl">
         <h2 className={`text-lg font-bold mb-1 text-${color}`}>
@@ -217,24 +197,28 @@ export default function QuestLog() {
         <DndContext
           collisionDetection={closestCenter}
           sensors={sensors}
-          onDragEnd={(evt) => handleDragEnd(evt, group)}
+          onDragEnd={evt => handleDragEnd(evt, group)}
         >
           <SortableContext
-            items={quests.map((q) => q.id)}
+            items={qs.map((q) => q.id)}
             strategy={verticalListSortingStrategy}
           >
-            {quests.length === 0 && (
+            {qs.length === 0 && (
               <div className="italic text-slate-500 text-sm px-3 py-1">
                 No quests yet.
               </div>
             )}
-            {quests.map((quest) => (
+            {qs.map((quest) => (
               <SortableQuestCard
                 key={quest.id}
                 quest={quest}
                 onCheck={() => handleCheck(quest.id, group)}
                 onDelete={() => handleDelete(quest.id, group)}
-                onRewrite={quest.isManual ? () => handleRewrite(quest.id) : undefined}
+                onRewrite={
+                  quest.isManual
+                    ? () => handleRewrite(quest.id)
+                    : undefined
+                }
                 loading={rewriteLoadingId === quest.id}
               />
             ))}
@@ -244,7 +228,7 @@ export default function QuestLog() {
     );
   }
 
-  // Wrapper for drag-and-droppable QuestCard
+  // --- Sortable wrapper around QuestCard for DnD ---
   function SortableQuestCard({ quest, onCheck, onDelete, onRewrite, loading }) {
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
       useSortable({ id: quest.id });
@@ -256,10 +240,7 @@ export default function QuestLog() {
           onDelete={onDelete}
           onRewrite={onRewrite}
           dragProps={{
-            attributes,
-            listeners,
-            transform,
-            transition,
+            attributes, listeners, transform, transition,
           }}
           isDragging={isDragging}
           style={loading ? { opacity: 0.6, pointerEvents: "none" } : {}}
@@ -268,6 +249,7 @@ export default function QuestLog() {
     );
   }
 
+  // UI
   return (
     <BaseLayout>
       <div className="flex flex-col items-center gap-4 py-10 px-4 w-full">
@@ -278,11 +260,8 @@ export default function QuestLog() {
           Main Quests, Side Quests, Microtasks & Manual tasks.<br />
           List, reorder, complete, add, <span className="font-bold text-fuchsia-300">or let AI break down your goal!</span>
         </p>
-        {/* --- [AI Quest Breakdown Prompt Bar] --- */}
-        <form
-          className="flex w-full max-w-xl mb-6 gap-2"
-          onSubmit={handleAIBreakdown}
-        >
+        {/* --- [AI Quest Breakdown Input Bar] --- */}
+        <form className="flex w-full max-w-xl mb-6 gap-2" onSubmit={handleAIBreakdown}>
           <input
             className="flex-1 rounded-xl bg-secondary border-accent/40 border-2 text-lg p-3 text-white font-semibold focus:outline-none focus:ring-2 focus:ring-accent/50 transition"
             placeholder="What's your main quest? (e.g. Crack GATE CS 2025)"
@@ -317,6 +296,7 @@ export default function QuestLog() {
           className="flex mt-2 max-w-xl w-full gap-2"
         >
           <input
+            ref={inputRef}
             type="text"
             className="flex-1 rounded-xl bg-secondary border-cyan-400/40 border-2 text-base p-2 text-white font-semibold focus:outline-none focus:ring-2 focus:ring-cyan-400/50 transition"
             placeholder="Add your own quest/task"
