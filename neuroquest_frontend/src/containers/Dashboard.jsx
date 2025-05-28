@@ -135,7 +135,11 @@ export default function Dashboard() {
         </div>
 
         {/* Floating Quest Orb (quick add quest) */}
-        <FloatingOrb icon="🌀" onClick={() => alert("Access Quick Quest!")} />
+        <FloatingOrb
+          icon="🌀"
+          onClick={() => (window.location.href = "/quest-log")}
+          aria-label="Jump to AI Quest Breakdown"
+        />
 
         {/* Lottie Celebration Animation Overlay */}
         {showCelebration && (
