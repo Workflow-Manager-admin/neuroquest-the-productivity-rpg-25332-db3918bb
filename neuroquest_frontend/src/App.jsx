@@ -1,11 +1,20 @@
 import React from "react";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import BaseLayout from "./containers/BaseLayout";
 import XPBar from "./components/XPBar";
 import HPBar from "./components/HPBar";
 import Avatar from "./components/Avatar";
 import ZoneCard from "./components/ZoneCard";
 import FloatingOrb from "./components/FloatingOrb";
+import Login from "./containers/Login";
+import { useAuth } from "./AuthContext";
+
+// PUBLIC_INTERFACE
+function ProtectedRoute({ children }) {
+  const { currentUser, loading } = useAuth();
+  if (loading) return null; // Could show spinner or null during loading
+  return currentUser ? children : <Navigate to="/login" replace />;
+}
 
 // Simple mock dashboard using all base UI elements
 function DashboardMock() {
@@ -64,7 +73,7 @@ function DashboardMock() {
         </div>
       </header>
       <section className="w-full flex flex-col md:flex-row gap-7 px-4 py-3 justify-center items-stretch max-w-6xl mx-auto">
-        {zones.map((zone, i) => (
+        {zones.map((zone) => (
           <ZoneCard
             key={zone.title}
             title={zone.title}
