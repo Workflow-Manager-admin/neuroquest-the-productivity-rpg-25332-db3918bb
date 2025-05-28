@@ -90,7 +90,15 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<DashboardMock />} />
+        <Route
+          path="/"
+          element={
+            <ProtectedRoute>
+              <DashboardMock />
+            </ProtectedRoute>
+          }
+        />
+        <Route path="/login" element={<Login />} />
         {/* Future: Modular containers/routes for features (auth, dashboard, quests, etc) */}
       </Routes>
     </BrowserRouter>
