@@ -59,7 +59,7 @@ export async function getQuestBreakdown(userGoal) {
         parsed.microtasks
       )
         return parsed;
-    } catch (_) {
+    } catch {
       // could be stringified JSON, or malformed
     }
     throw new Error(
