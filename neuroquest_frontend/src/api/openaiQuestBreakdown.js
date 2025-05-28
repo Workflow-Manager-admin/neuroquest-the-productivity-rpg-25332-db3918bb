@@ -20,11 +20,12 @@ export async function getQuestBreakdown(userGoal) {
   const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
   if (!apiKey) throw new Error("VITE_OPENAI_API_KEY missing from environment!");
 
+  const systemPrompt = `You are NeuroQuestGPT, the expert RPG Quest Master. Given a user's major life goal (such as a big exam, project, or achievement), break it down as an RPG quest map: (a) a Main Questline of 3-6 key milestones, (b) 3-8 Side Quests (parallel or optional helpful tasks), and (c) 5-20 Microtasks (small actionable tasks, mapped to main/side quests, but grouped flat). Respond ONLY with a valid JSON object like: { "mainQuestline": ["..."], "sideQuests": ["..."], "microtasks": ["..."] }`;
+
   const prompt = [
     {
       role: "system",
-      content:
-        'You are NeuroQuestGPT, the expert RPG Quest Master. Given a user's major life goal (such as a big exam, project, or achievement), break it down as an RPG quest map: (a) a Main Questline of 3-6 key milestones, (b) 3-8 Side Quests (parallel or optional helpful tasks), and (c) 5-20 Microtasks (small actionable tasks, mapped to main/side quests, but grouped flat). Respond ONLY with a valid JSON object like: { "mainQuestline": ["..."], "sideQuests": ["..."], "microtasks": ["..."] }'
+      content: systemPrompt,
     },
     { role: "user", content: `Goal: ${userGoal}` },
   ];
