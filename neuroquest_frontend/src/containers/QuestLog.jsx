@@ -1,5 +1,6 @@
 import React from "react";
 import BaseLayout from "./BaseLayout";
+import QuestBreakdown from "../components/QuestBreakdown";
 
 /**
  * Quest Log container — displays AI-generated and manual task lists,
@@ -13,10 +14,11 @@ export default function QuestLog() {
         <h1 className="text-3xl md:text-5xl font-bold text-accent drop-shadow-sm">
           Quest Log
         </h1>
-        <p className="text-slate-400">
-          Here you'll find your main quests, side quests, and microtasks!
+        <p className="text-slate-400 text-center mb-2">
+          Here you'll find your Main Quests, Side Quests, and Microtasks — powered by AI!
         </p>
-        <span className="text-xl text-slate-500 mt-6 italic">Log coming soon...</span>
+        {/* --- [AI Quest Breakdown Component] --- */}
+        <QuestBreakdown />
       </div>
     </BaseLayout>
   );
