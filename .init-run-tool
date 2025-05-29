@@ -1,0 +1,4 @@
+{
+    "command": "npm run dev -- --port <port>",
+    "working_directory": "/home/kavia/workspace/code-generation/neuroquest-the-productivity-rpg-25332-db3918bb/neuroquest_frontend"
+}
